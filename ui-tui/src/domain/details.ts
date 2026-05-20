@@ -7,22 +7,29 @@ export const SECTION_NAMES = ['thinking', 'tools', 'subagents', 'activity'] as c
 // Out-of-the-box per-section defaults — applied when the user hasn't pinned
 // an explicit override and layered ABOVE the global details_mode:
 //
-//   - thinking / tools: expanded — stream open so the turn reads like a
-//     live transcript (reasoning + tool calls side by side) instead of a
-//     wall of chevrons the user has to click every turn.
+//   - thinking: collapsed — reasoning is folded under a chevron showing the
+//     token count.  The agent's conclusions appear in the final response;
+//     showing the full chain-of-thought by default clutters the transcript.
+//     Expand any block with a click, or use `/details thinking expanded` to
+//     revert to the old always-open behaviour.
+//   - tools: collapsed — completed tool blocks fold to a one-line chevron
+//     ("▸ Tool calls (N)") so history stays compact.  Active tools during a
+//     live turn still auto-expand (see ToolTrail busy logic) so you always
+//     see what the agent is doing mid-flight.  Expand any past block with a
+//     click, or use `/details tools expanded` to revert.
 //   - activity: hidden — ambient meta (gateway hints, terminal-parity
 //     nudges, background notifications) is noise for typical use.  Tool
 //     failures still render inline on the failing tool row, and ambient
 //     errors/warnings surface via the floating-alert backstop when every
 //     panel resolves to hidden.
 //   - subagents: not set — falls through to the global details_mode so
-//     Spawn trees stay under a chevron until a delegation actually happens.
+//     spawn trees stay under a chevron until a delegation actually happens.
 //
 // Opt out of any of these with `display.sections.<name>` in config.yaml
-// or at runtime via `/details <name> collapsed|hidden`.
+// or at runtime via `/details <name> collapsed|hidden|expanded`.
 const SECTION_DEFAULTS: SectionVisibility = {
-  thinking: 'expanded',
-  tools: 'expanded',
+  thinking: 'collapsed',
+  tools: 'collapsed',
   activity: 'hidden'
 }
 

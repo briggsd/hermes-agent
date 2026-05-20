@@ -25,6 +25,7 @@ export interface ThemeColors {
   statusBad: string
   statusCritical: string
   selectionBg: string
+  userMsgBg: string
 
   diffAdded: string
   diffRemoved: string
@@ -289,7 +290,8 @@ export const DARK_THEME: Theme = {
     statusWarn: '#FFD700',
     statusBad: '#FF8C00',
     statusCritical: '#FF6B6B',
-    selectionBg: '#3a3a55',
+    selectionBg: '#222222',
+    userMsgBg: '#1a1a1a',
 
     diffAdded: 'rgb(220,255,220)',
     diffRemoved: 'rgb(255,220,220)',
@@ -335,6 +337,7 @@ export const LIGHT_THEME: Theme = {
     statusBad: '#D84315',
     statusCritical: '#B71C1C',
     selectionBg: '#D4E4F7',
+    userMsgBg: '#F0F0F0',
 
     diffAdded: 'rgb(200,240,200)',
     diffRemoved: 'rgb(240,200,200)',
@@ -565,6 +568,7 @@ export function fromSkin(
       statusBad: d.color.statusBad,
       statusCritical: d.color.statusCritical,
       selectionBg: c('selection_bg') ?? c('completion_menu_current_bg') ?? (hasSkinColors ? completionCurrentBg : d.color.selectionBg),
+      userMsgBg: c('user_msg_bg') ?? d.color.userMsgBg,
 
       diffAdded: d.color.diffAdded,
       diffRemoved: d.color.diffRemoved,

@@ -243,7 +243,7 @@ class TurnController {
     }
 
     const msg: Msg = {
-      kind: 'trail',
+      kind: 'thinking',
       role: 'system',
       text: '',
       thinking,
@@ -252,8 +252,19 @@ class TurnController {
     }
 
     if (this.reasoningSegmentIndex === null) {
-      this.reasoningSegmentIndex = this.segmentMessages.length
-      this.segmentMessages = [...this.segmentMessages, msg]
+      // If a thinking segment already exists (e.g. late thinking.delta arriving
+      // after message.delta reset reasoningSegmentIndex), update it in-place
+      // rather than appending a duplicate at the end.
+      const existingIdx = this.segmentMessages.findIndex(m => m.kind === 'thinking')
+      if (existingIdx >= 0) {
+        this.reasoningSegmentIndex = existingIdx
+        this.segmentMessages = this.segmentMessages.map((item, i) => (i === existingIdx ? msg : item))
+      } else {
+        // No thinking segment yet — prepend at index 0 so it always appears
+        // before tool and text segments, even when thinking.delta arrives late.
+        this.reasoningSegmentIndex = 0
+        this.segmentMessages = [msg, ...this.segmentMessages]
+      }
     } else {
       this.segmentMessages = this.segmentMessages.map((item, i) => (i === this.reasoningSegmentIndex ? msg : item))
     }
@@ -338,10 +349,6 @@ class TurnController {
       text: '',
       tools: this.pendingSegmentTools
     })
-
-    if (next.length === this.segmentMessages.length + 1) {
-      return false
-    }
 
     this.segmentMessages = next
     this.pendingSegmentTools = []
@@ -594,10 +601,37 @@ class TurnController {
     }
 
     this.recordTodos(todos)
+    const done = this.activeTools.find(tool => tool.id === toolId)
+    const fallbackDuration = done?.startedAt ? (Date.now() - done.startedAt) / 1000 : undefined
     const line = this.completeTool(toolId, fallbackName, error, summary, duration)
 
-    this.pendingSegmentTools = [...this.pendingSegmentTools, line]
-    this.flushPendingToolsIntoLastSegment()
+    // Mutate the matching per-tool segment from 'executing' → 'completed'.
+    // This is the Droid model: the segment lives in streamSegments and just
+    // updates in place. The pending-tools queue stays as a fallback for any
+    // path that still depends on the old shelf rendering.
+    const segIdx = this.segmentMessages.findIndex(m => m.kind === 'tool' && m.toolId === toolId)
+
+    if (segIdx >= 0) {
+      const prev = this.segmentMessages[segIdx]!
+      this.segmentMessages = [
+        ...this.segmentMessages.slice(0, segIdx),
+        {
+          ...prev,
+          toolStatus: error ? 'error' : 'completed',
+          toolResult: error || summary || '',
+          toolError: Boolean(error),
+          toolDuration: duration ?? fallbackDuration
+        },
+        ...this.segmentMessages.slice(segIdx + 1)
+      ]
+      patchTurnState({ streamSegments: this.segmentMessages })
+    } else {
+      // Fallback for tools that completed without a matching start (shouldn't
+      // happen in practice but keeps the old shelf working).
+      this.pendingSegmentTools = [...this.pendingSegmentTools, line]
+      this.flushPendingToolsIntoLastSegment()
+    }
+
     this.publishToolState()
   }
 
@@ -680,6 +714,12 @@ class TurnController {
       return
     }
 
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('fs').appendFileSync('/tmp/hermes-tui-debug.log',
+        `[recordToolStart] id=${toolId} name=${name} ctx=${context.slice(0, 60)}\n`)
+    } catch {}
+
     this.flushStreamingSegment()
     this.closeReasoningSegment()
     this.pruneTransient()
@@ -690,7 +730,23 @@ class TurnController {
     this.toolTokenAcc += sample ? estimateTokensRough(sample) : 0
     this.activeTools = [...this.activeTools, { context, id: toolId, name, startedAt: Date.now() }]
 
-    patchTurnState({ toolTokens: this.toolTokenAcc, tools: this.activeTools })
+    // Droid-style: push a per-tool segment immediately so it renders inline
+    // with the assistant text, with status='executing' (spinner). Completion
+    // mutates this same segment in place.
+    this.segmentMessages = [
+      ...this.segmentMessages,
+      {
+        kind: 'tool',
+        role: 'system',
+        text: '',
+        toolId,
+        toolName: name,
+        toolArgs: context,
+        toolStatus: 'executing'
+      }
+    ]
+
+    patchTurnState({ toolTokens: this.toolTokenAcc, tools: this.activeTools, streamSegments: this.segmentMessages })
   }
 
   reset() {

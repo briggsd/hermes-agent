@@ -51,6 +51,7 @@ export const MessageLine = memo(function MessageLine({
   // Collapse toggle for long system messages
   const systemIsLong = msg.role === 'system' && msg.text.length > SYSTEM_COLLAPSE_CHARS
   const [systemOpen, setSystemOpen] = useState(false)
+  const [thinkingOpen, setThinkingOpen] = useState(false)
 
   if (msg.kind === 'trail' && msg.todos?.length) {
     return (
@@ -63,10 +64,113 @@ export const MessageLine = memo(function MessageLine({
     )
   }
 
+  // Droid-style per-tool block.  Each tool gets its own block with:
+  //   Label  args/preview                       status
+  //   └ result lines (indented, truncated)
+  if (msg.kind === 'tool') {
+    if (toolsMode === 'hidden') return null
+    const rawName = msg.toolName ?? 'tool'
+    const args = (msg.toolArgs ?? '').trim()
+    const status = msg.toolStatus ?? 'executing'
+    const result = (msg.toolResult ?? '').trim()
+    const took = msg.toolDuration !== undefined ? `${msg.toolDuration.toFixed(1)}s` : ''
+    const isExecuting = status === 'executing'
+    const isError = Boolean(msg.toolError)
+
+    // Human-readable label for common tools
+    const TOOL_LABELS: Record<string, string> = {
+      terminal: 'Execute',
+      search_files: 'Search',
+      read_file: 'Read File',
+      write_file: 'Write File',
+      web_search: 'Web Search',
+      web_extract: 'Fetch',
+      mcp_browser_navigate: 'Browse',
+      mcp_browser_click: 'Click',
+      mcp_browser_type: 'Type',
+      mcp_browser_snapshot: 'Snapshot',
+      mcp_browser_vision: 'Vision',
+      patch: 'Edit',
+      execute_code: 'Run Code',
+      delegate_task: 'Delegate',
+    }
+    const label = TOOL_LABELS[rawName] ?? rawName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    const labelColor = isError ? t.color.error : isExecuting ? t.color.accent : t.color.accent
+
+    // Status badge (right-aligned)
+    const badge = isExecuting ? '●' : isError ? 'error' : took
+    const badgeColor = isExecuting ? t.color.accent : isError ? t.color.error : t.color.muted
+
+    // Args preview — leave room for label + badge
+    const maxArgs = Math.max(20, cols - label.length - badge.length - 10)
+    const previewArgs = args.length > maxArgs ? args.slice(0, maxArgs - 1) + '…' : args
+
+    // Result: show up to 5 lines, truncating each line to terminal width
+    const resultLines = result
+      ? result.split('\n').slice(0, 5).map(l => l.slice(0, Math.max(40, cols - 8)))
+      : []
+    const resultTruncated = result ? result.split('\n').length > 5 : false
+
+    return (
+      <Box flexDirection="column" marginLeft={2} marginTop={1}>
+        {/* Header row: Label  args  ·  badge */}
+        <Box>
+          <Text bold color={labelColor}>{label}</Text>
+          {previewArgs ? (
+            <Text color={t.color.text}> {previewArgs}</Text>
+          ) : null}
+          <Text> </Text>
+          <Text color={badgeColor} dimColor={!isExecuting && !isError}>{badge}</Text>
+        </Box>
+        {/* Result block */}
+        {resultLines.length > 0 && (
+          <Box flexDirection="column" marginLeft={2} marginTop={0}>
+            {resultLines.map((line, i) => (
+              <Text color={t.color.muted} key={i} wrap="truncate-end">
+                {i === 0 ? '└ ' : '  '}{line}
+              </Text>
+            ))}
+            {resultTruncated && (
+              <Text color={t.color.muted} dimColor>  …</Text>
+            )}
+          </Box>
+        )}
+      </Box>
+    )
+  }
+
+  // Droid-style live-thinking block.  Renders as a collapsed chevron with
+  // the running token count while reasoning streams in. Clickable to expand.
+  if (msg.kind === 'thinking') {
+    if (thinkingMode === 'hidden') return null
+    const tokens = msg.thinkingTokens ?? 0
+    const preview = (msg.thinking ?? '').trim()
+    if (!preview) return null
+    return (
+      <Box flexDirection="column" marginLeft={3}>
+        <Box onClick={() => setThinkingOpen(v => !v)}>
+          <Text color={t.color.accent}>{thinkingOpen ? '▾ ' : '▸ '}</Text>
+          <Text color={t.color.muted}>Thinking</Text>
+          {tokens > 0 ? (
+            <Text color={t.color.muted} dimColor> ~{tokens.toLocaleString()} tokens</Text>
+          ) : null}
+        </Box>
+        {thinkingOpen ? (
+          <Box marginLeft={2} marginTop={0}>
+            <Text color={t.color.muted} wrap="wrap">{preview}</Text>
+          </Box>
+        ) : null}
+      </Box>
+    )
+  }
+
   if (msg.kind === 'trail' && (msg.tools?.length || tools.length || thinking)) {
+    // tools.length > 0 means this is the live-turn active-tools block from StreamingAssistant
+    const isLiveTurn = tools.length > 0
     return thinkingMode !== 'hidden' || toolsMode !== 'hidden' || activityMode !== 'hidden' ? (
       <Box flexDirection="column">
         <ToolTrail
+          busy={isLiveTurn}
           commandOverride={detailsModeCommandOverride}
           detailsMode={detailsMode}
           reasoning={thinking}
@@ -194,15 +298,24 @@ export const MessageLine = memo(function MessageLine({
         </Box>
       )}
 
-      <Box>
-        <NoSelect flexShrink={0} fromLeftEdge width={gutterWidth}>
-          <Text bold={msg.role === 'user'} color={prefix}>
-            {glyph}{' '}
-          </Text>
-        </NoSelect>
-
-        <Box width={transcriptBodyWidth(cols, msg.role, t.brand.prompt)}>{content}</Box>
-      </Box>
+      {msg.role === 'user' ? (
+        // Droid-style user row: full-width background highlight + solid left bar
+        <Box backgroundColor={t.color.userMsgBg} width={cols}>
+          <NoSelect flexShrink={0} fromLeftEdge width={gutterWidth}>
+            <Text color={t.color.accent}>{'▌ '}</Text>
+          </NoSelect>
+          <Box width={transcriptBodyWidth(cols, msg.role, t.brand.prompt)}>{content}</Box>
+        </Box>
+      ) : (
+        <Box>
+          <NoSelect flexShrink={0} fromLeftEdge width={gutterWidth}>
+            <Text bold={msg.role === 'user'} color={prefix}>
+              {glyph}{' '}
+            </Text>
+          </NoSelect>
+          <Box width={transcriptBodyWidth(cols, msg.role, t.brand.prompt)}>{content}</Box>
+        </Box>
+      )}
     </Box>
   )
 })

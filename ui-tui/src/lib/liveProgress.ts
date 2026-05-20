@@ -22,8 +22,10 @@ const isBarrierMessage = (msg: Msg | undefined) => {
     return true
   }
 
-  // Assistant text, user input, intro/panel rows all terminate the shelf.
-  if (msg.kind === 'intro' || msg.kind === 'panel' || msg.kind === 'diff') {
+  // Assistant text, user input, intro/panel/diff rows all terminate the shelf.
+  // Per-tool and per-thinking segments also act as barriers so the shelf
+  // doesn't visually leap backwards over a tool/thinking block.
+  if (msg.kind === 'intro' || msg.kind === 'panel' || msg.kind === 'diff' || msg.kind === 'tool' || msg.kind === 'thinking') {
     return true
   }
 

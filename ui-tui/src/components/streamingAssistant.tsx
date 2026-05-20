@@ -23,7 +23,6 @@ export const StreamingAssistant = memo(function StreamingAssistant({
 }: StreamingAssistantProps) {
   const ui = useStore($uiState)
   const streamSegments = useTurnSelector(state => state.streamSegments)
-  const streamPendingTools = useTurnSelector(state => state.streamPendingTools)
   const streaming = useTurnSelector(state => state.streaming)
   const activeTools = useTurnSelector(state => state.tools)
   const showStreamingArea = Boolean(streaming)
@@ -47,19 +46,6 @@ export const StreamingAssistant = memo(function StreamingAssistant({
         />
       ))}
 
-      {!!activeTools.length && (
-        <MessageLine
-          cols={cols}
-          compact={compact}
-          detailsMode={detailsMode}
-          detailsModeCommandOverride={detailsModeCommandOverride}
-          msg={{ kind: 'trail', role: 'system', text: '' }}
-          sections={sections}
-          t={ui.theme}
-          tools={activeTools}
-        />
-      )}
-
       {showStreamingArea && (
         <MessageLine
           cols={cols}
@@ -69,21 +55,8 @@ export const StreamingAssistant = memo(function StreamingAssistant({
           isStreaming
           msg={{
             role: 'assistant',
-            text: streaming,
-            ...(streamPendingTools.length && { tools: streamPendingTools })
+            text: streaming
           }}
-          sections={sections}
-          t={ui.theme}
-        />
-      )}
-
-      {!showStreamingArea && !!streamPendingTools.length && (
-        <MessageLine
-          cols={cols}
-          compact={compact}
-          detailsMode={detailsMode}
-          detailsModeCommandOverride={detailsModeCommandOverride}
-          msg={{ kind: 'trail', role: 'system', text: '', tools: streamPendingTools }}
           sections={sections}
           t={ui.theme}
         />

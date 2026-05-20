@@ -281,7 +281,14 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
   return (ev: GatewayEvent) => {
     const sid = getUiState().sid
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    try { require('fs').appendFileSync('/tmp/hermes-tui-debug.log',
+      `[event] type=${ev.type} ev.session_id=${ev.session_id ?? 'none'} ui.sid=${sid ?? 'none'}\n`) } catch {}
+
     if (ev.session_id && sid && ev.session_id !== sid && !ev.type.startsWith('gateway.')) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      try { require('fs').appendFileSync('/tmp/hermes-tui-debug.log',
+        `[event DROPPED sid mismatch] type=${ev.type} ev.sid=${ev.session_id} ui.sid=${sid}\n`) } catch {}
       return
     }
 

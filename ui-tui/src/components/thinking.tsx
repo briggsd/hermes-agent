@@ -23,7 +23,7 @@ import {
   formatToolCall,
   parseToolTrailResultLine,
   pick,
-  splitToolDuration,
+  splitToolParts,
   thinkingPreview,
   toolTrailLabel
 } from '../lib/text.js'
@@ -684,6 +684,14 @@ interface Group {
   details: DetailRow[]
   key: string
   label: string
+  /** Display name portion (e.g. "Terminal") for Droid-style header */
+  toolName?: string
+  /** Context/arg portion (e.g. "which gh") for Droid-style header */
+  toolCtx?: string
+  /** Duration string (e.g. "0.5s") when completed */
+  toolDuration?: string
+  /** Whether this tool is still running (spinner) */
+  active?: boolean
 }
 
 export const ToolTrail = memo(function ToolTrail({
@@ -738,24 +746,22 @@ export const ToolTrail = memo(function ToolTrail({
   // and silently breaks manual chevron clicks for default-expanded
   // sections (regression caught after #14968).
   const [openThinking, setOpenThinking] = useState(visible.thinking === 'expanded')
-  const [openTools, setOpenTools] = useState(visible.tools === 'expanded')
   const [openSubagents, setOpenSubagents] = useState(visible.subagents === 'expanded')
   const [deepSubagents, setDeepSubagents] = useState(visible.subagents === 'expanded')
   const [openMeta, setOpenMeta] = useState(visible.activity === 'expanded')
 
   useEffect(() => {
-    if (!tools.length || (visible.tools !== 'expanded' && !openTools)) {
+    if (!tools.length) {
       return
     }
 
     const id = setInterval(() => setNow(Date.now()), 500)
 
     return () => clearInterval(id)
-  }, [openTools, tools.length, visible.tools])
+  }, [tools.length])
 
   useEffect(() => {
     setOpenThinking(visible.thinking === 'expanded')
-    setOpenTools(visible.tools === 'expanded')
     setOpenSubagents(visible.subagents === 'expanded')
     setOpenMeta(visible.activity === 'expanded')
   }, [visible])
@@ -795,12 +801,18 @@ export const ToolTrail = memo(function ToolTrail({
     const parsed = parseToolTrailResultLine(line)
 
     if (parsed) {
+      const parts = splitToolParts(parsed.call)
+
       groups.push({
         color: parsed.mark === '✗' ? t.color.error : t.color.text,
         content: parsed.call,
         details: [],
         key: `tr-${i}`,
-        label: parsed.call
+        label: parsed.call,
+        toolName: parts.name,
+        toolCtx: parts.ctx,
+        toolDuration: parts.duration || undefined,
+        active: false
       })
 
       if (parsed.detail) {
@@ -823,7 +835,10 @@ export const ToolTrail = memo(function ToolTrail({
         content: label,
         details: [{ color: t.color.muted, content: 'drafting...', dimColor: true, key: `tr-${i}-d` }],
         key: `tr-${i}`,
-        label
+        label,
+        toolName: label,
+        toolCtx: '',
+        active: false
       })
 
       continue
@@ -851,6 +866,8 @@ export const ToolTrail = memo(function ToolTrail({
 
   for (const tool of tools) {
     const label = formatToolCall(tool.name, tool.context || '')
+    const name = toolTrailLabel(tool.name)
+    const ctx = compactPreview(tool.context || '', 64)
 
     groups.push({
       color: t.color.text,
@@ -862,7 +879,10 @@ export const ToolTrail = memo(function ToolTrail({
           <Spinner color={t.color.accent} variant="tool" /> {label}
           {tool.startedAt ? ` (${fmtElapsed(now - tool.startedAt)})` : ''}
         </>
-      )
+      ),
+      toolName: name,
+      toolCtx: ctx,
+      active: true
     })
   }
 
@@ -887,26 +907,9 @@ export const ToolTrail = memo(function ToolTrail({
   const totalTokenCount = tokenCount + toolTokenCount
   const thinkingTokensLabel = tokenCount > 0 ? `~${fmtK(tokenCount)} tokens` : null
 
-  const toolTokensLabel = toolTokens !== undefined && toolTokens > 0 ? `~${fmtK(toolTokens)} tokens` : undefined
-
   const totalTokensLabel = tokenCount > 0 && toolTokenCount > 0 ? `~${fmtK(totalTokenCount)} total` : null
   const delegateGroups = groups.filter(g => g.label.startsWith('Delegate Task'))
   const inlineDelegateKey = hasSubagents && delegateGroups.length === 1 ? delegateGroups[0]!.key : null
-
-  const toolLabel = (group: Group) => {
-    const { duration, label } = splitToolDuration(String(group.content))
-
-    return duration ? (
-      <>
-        {label}
-        <Text color={t.color.statusFg} dim>
-          {duration}
-        </Text>
-      </>
-    ) : (
-      group.content
-    )
-  }
 
   // ── Backstop: floating alerts when every panel is hidden ─────────
   //
@@ -945,10 +948,6 @@ export const ToolTrail = memo(function ToolTrail({
   const expandAll = () => {
     if (visible.thinking !== 'hidden') {
       setOpenThinking(true)
-    }
-
-    if (visible.tools !== 'hidden') {
-      setOpenTools(true)
     }
 
     if (visible.subagents !== 'hidden') {
@@ -1039,62 +1038,55 @@ export const ToolTrail = memo(function ToolTrail({
   }
 
   if (hasTools && visible.tools !== 'hidden') {
-    panels.push({
-      header: (
-        <Chevron
-          count={groups.length}
-          onClick={shift => {
-            if (shift) {
-              expandAll()
-            } else {
-              setOpenTools(v => !v)
-            }
-          }}
-          open={openTools}
-          suffix={toolTokensLabel}
-          t={t}
-          title="Tool calls"
-        />
-      ),
-      key: 'tools',
-      open: openTools,
-      render: rails => (
-        <Box flexDirection="column">
-          {groups.map((group, index) => {
-            const branch: TreeBranch = index === groups.length - 1 ? 'last' : 'mid'
-            const childRails = nextTreeRails(rails, branch)
-            const hasInlineSubagents = inlineDelegateKey === group.key
+    // Droid-style: each tool is its own self-contained block — no outer accordion.
+    // Header: bold colored tool name + context inline.
+    // Body: output details as tree beneath.
+    for (const [, group] of groups.entries()) {
+      const hasInlineSubagents = inlineDelegateKey === group.key
 
-            return (
-              <Box flexDirection="column" key={group.key}>
-                <TreeTextRow
-                  branch={branch}
-                  color={group.color}
-                  content={
-                    <>
-                      <Text color={t.color.accent}>● </Text>
-                      {toolLabel(group)}
-                    </>
-                  }
-                  rails={rails}
-                  t={t}
-                />
-                {group.details.map((detail, detailIndex) => (
-                  <Detail
-                    {...detail}
-                    branch={detailIndex === group.details.length - 1 && !hasInlineSubagents ? 'last' : 'mid'}
-                    key={detail.key}
-                    rails={childRails}
-                    t={t}
-                  />
-                ))}
-                {hasInlineSubagents ? renderSubagentList(childRails) : null}
-              </Box>
-            )
-          })}
-        </Box>
-      )
-    })
+      panels.push({
+        header: (
+          <Box>
+            {group.active ? (
+              <Text color={t.color.accent}>
+                <Spinner color={t.color.accent} variant="tool" />{' '}
+              </Text>
+            ) : null}
+            <Text bold color={t.color.accent}>
+              {group.toolName ?? group.label}
+            </Text>
+            {group.toolCtx ? (
+              <Text color={t.color.muted} dim>
+                {'  '}
+                {group.toolCtx}
+              </Text>
+            ) : null}
+            {group.toolDuration ? (
+              <Text color={t.color.statusFg} dim>
+                {'  '}
+                {group.toolDuration}
+              </Text>
+            ) : null}
+          </Box>
+        ),
+        key: group.key,
+        open: group.details.length > 0 || hasInlineSubagents,
+        render: rails => (
+          <Box flexDirection="column">
+            {group.details.map((detail, detailIndex) => (
+              <Detail
+                {...detail}
+                branch={detailIndex === group.details.length - 1 && !hasInlineSubagents ? 'last' : 'mid'}
+                key={detail.key}
+                rails={rails}
+                t={t}
+              />
+            ))}
+            {hasInlineSubagents ? renderSubagentList(rails) : null}
+          </Box>
+        )
+      })
+    }
   }
 
   if (hasSubagents && !inlineDelegateKey && visible.subagents !== 'hidden') {

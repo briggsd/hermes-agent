@@ -242,6 +242,28 @@ export const splitToolDuration = (call: string) => {
   return match ? { label: match[1]!, duration: match[2]! } : { label: call, duration: '' }
 }
 
+/**
+ * Split a formatted tool call string like `Terminal("which gh") (0.5s)` into
+ * its display parts for Droid-style inline rendering.
+ */
+export const splitToolParts = (callStr: string): { name: string; ctx: string; duration: string } => {
+  // Extract trailing duration " (0.5s)"
+  const durMatch = callStr.match(/^(.*?)(\s+\(\d+(?:\.\d)?s\))$/)
+  const duration = durMatch ? durMatch[2]!.trim() : ''
+  const clean = durMatch ? durMatch[1]!.trim() : callStr.trim()
+
+  // Split `Name("ctx")` → name + ctx
+  const parenIdx = clean.indexOf('("')
+  if (parenIdx < 0) return { name: clean, ctx: '', duration }
+
+  const name = clean.slice(0, parenIdx).trim()
+  const inner = clean.slice(parenIdx + 2)
+  const closeIdx = inner.lastIndexOf('")')
+  const ctx = closeIdx >= 0 ? inner.slice(0, closeIdx) : inner
+
+  return { name, ctx, duration }
+}
+
 export const isTransientTrailLine = (line: string) => line.startsWith('drafting ') || line === 'analyzing tool output…'
 
 export const sameToolTrailGroup = (label: string, entry: string) =>

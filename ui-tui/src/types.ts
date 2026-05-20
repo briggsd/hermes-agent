@@ -110,7 +110,7 @@ export interface ClarifyReq {
 
 export interface Msg {
   info?: SessionInfo
-  kind?: 'diff' | 'intro' | 'panel' | 'slash' | 'trail'
+  kind?: 'diff' | 'intro' | 'panel' | 'slash' | 'thinking' | 'tool' | 'trail'
   panelData?: PanelData
   role: Role
   text: string
@@ -121,6 +121,14 @@ export interface Msg {
   todos?: TodoItem[]
   todoIncomplete?: boolean
   todoCollapsedByDefault?: boolean
+  // Per-tool segment fields (kind: 'tool') — Droid-style live tool blocks
+  toolId?: string
+  toolName?: string
+  toolArgs?: string
+  toolStatus?: 'executing' | 'completed' | 'error'
+  toolResult?: string
+  toolError?: boolean
+  toolDuration?: number
 }
 
 export type Role = 'assistant' | 'system' | 'tool' | 'user'
